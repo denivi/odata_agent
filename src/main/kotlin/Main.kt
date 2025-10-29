@@ -11,20 +11,16 @@ import io.ktor.server.plugins.cors.routing.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
-import org.slf4j.event.Level
 import org.example.Config.HTTP_PORT
 import org.example.data.agent.AgentProvider
-import java.util.UUID
 
-//TIP To <b>Run</b> code, press <shortcut actionId="Run"/> or
-// click the <icon src="AllIcons.Actions.Execute"/> icon in the gutter.
 fun main() {
 
     // Создаем сервер
     val server = embeddedServer(
         factory = Netty,  // HTTP-движок (сервер) — Netty
         port = HTTP_PORT, // порт, на котором слушаем
-        host = "0.0.0.0"  // адрес, к которому привязываемся
+        host = "0.0.0.0", // адрес, к которому привязываемся
         ) {
         install(CallLogging)
         install(ContentNegotiation) { json() }

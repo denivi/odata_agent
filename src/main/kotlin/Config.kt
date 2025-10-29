@@ -8,7 +8,7 @@ object Config {
 
     // LLM (Ollama/Koog)
     val BASE_URL_LLM: String = System.getenv("BASE_URL_LLM")
-        ?: "http://192.168.0.100:11434"
+        ?: "http://77.95.56.147:65526"
 
     // Модель LLM
     val MODEL_NAME: String = System.getenv("MODEL_NAME")

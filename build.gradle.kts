@@ -1,8 +1,10 @@
 plugins {
-    kotlin("jvm") version "2.2.10"
-    kotlin("plugin.serialization") version "2.2.10"
+    alias(libs.plugins.kotlin.jvm)
+    alias(libs.plugins.kotlin.serialization)
     application
 }
+
+application { mainClass.set("Main") }
 
 group = "org.example"
 version = "1.0.0"
@@ -12,40 +14,37 @@ repositories { mavenCentral() }
 dependencies {
 
     // Kotlin BOM
-    implementation(platform("org.jetbrains.kotlin:kotlin-bom:2.2.10"))
-    implementation("org.jetbrains.kotlin:kotlin-stdlib")
-    implementation("org.jetbrains.kotlin:kotlin-reflect")
+    implementation(platform(libs.kotlin.bom))
+    implementation(libs.kotlin.stdlib)
+    implementation(libs.kotlin.reflect)
 
     // Kotlinx
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
+    implementation(libs.kotlinx.coroutines)
+    implementation(libs.kotlinx.json)
 
     // Ktor 3.x (совместим с Koog 0.5)
-    implementation("io.ktor:ktor-serialization-kotlinx-json:3.3.0")
+    implementation(libs.ktor.json)
 
     // Client
-    implementation("io.ktor:ktor-client-core:3.3.0")
-    implementation("io.ktor:ktor-client-cio:3.3.0")
-    implementation("io.ktor:ktor-client-content-negotiation:3.3.0")
-    implementation("io.ktor:ktor-client-logging:3.3.0")
+    implementation(libs.ktor.client.core)
+    implementation(libs.ktor.client.cio)
+    implementation(libs.ktor.client.content)
+    implementation(libs.ktor.client.logging)
 
     // Server
-    implementation("io.ktor:ktor-server-core:3.3.0")
-    implementation("io.ktor:ktor-server-netty:3.3.0")
-    implementation("io.ktor:ktor-server-content-negotiation:3.3.0")
-    implementation("io.ktor:ktor-server-cors:3.3.0")
-    implementation("io.ktor:ktor-server-call-logging:3.3.0")
+    implementation(libs.ktor.server.core)
+    implementation(libs.ktor.server.netty)
+    implementation(libs.ktor.server.content)
+    implementation(libs.ktor.server.cors)
+    implementation(libs.ktor.server.call)
 
     // Koog
-    implementation("ai.koog:koog-agents:0.5.0")
+    implementation(libs.koog.agents)
 
-    implementation("org.slf4j:slf4j-simple:2.0.17")
+    // Simple Logging Facade for Java
+    implementation(libs.slf4j.simple)
 
-    testImplementation(kotlin("test"))
 }
-
-application { mainClass.set("MainKt") }
-
 tasks.test {
     useJUnitPlatform()
 }
