@@ -1,4 +1,4 @@
-package org.example.data.html_client
+package data.http_client
 
 import io.ktor.client.*
 import io.ktor.client.engine.cio.*

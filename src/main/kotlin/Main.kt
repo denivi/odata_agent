@@ -1,5 +1,6 @@
 package org.example
 
+import aws.smithy.kotlin.runtime.retries.Outcome
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
@@ -13,6 +14,8 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import org.example.Config.HTTP_PORT
 import org.example.data.agent.AgentProvider
+import org.example.data.dto.ChatRequest
+import org.example.data.dto.ChatResponse
 
 fun main() {
 
@@ -37,12 +40,19 @@ fun main() {
             }
 
             post("/chat") {
-                val request = call.receive<String>()
-                val answer = agentProvider.ask(request)
-                call.respond(
-                    status = HttpStatusCode.OK,
-                    message = answer
-                )
+                try {
+                    val request = call.receive<ChatRequest>()
+                    val response = agentProvider.ask(request.message)
+                    call.respond(
+                        status = HttpStatusCode.OK,
+                        message = response
+                    )
+                } catch (e: Exception){
+                    call.respond(
+                        HttpStatusCode.BadRequest,
+                        ChatResponse(success = false, error = "Invalid request: ${e.message}")
+                    )
+                }
             }
         }
     }

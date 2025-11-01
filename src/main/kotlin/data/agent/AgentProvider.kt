@@ -11,7 +11,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.example.Config
 import org.example.PROMPT
-import org.example.data.tools.MathTools
+import org.example.data.dto.ChatResponse
+import org.example.data.tools.OdataToolSet
 
 class AgentProvider {
 
@@ -33,7 +34,7 @@ class AgentProvider {
     // Реестр инструментов, доступных агенту.
     // Добавляем набор инструментов — MathTools (можно расширять) (в качестве примера).
     private val toolRegistry = ToolRegistry {
-        tools(MathTools())
+        tools(OdataToolSet())
     }
 
     //  - функциональная стратегия выполнения.
@@ -69,7 +70,12 @@ class AgentProvider {
 
     // Публичный метод: создать нового агента и получает ответ.
     // Вынесено в IO-диспетчер, чтобы не блокировать основной поток.
-    suspend fun ask(message: String): String = withContext(Dispatchers.IO) {
-        newAgent().run(agentInput = message)
+    suspend fun ask(message: String): ChatResponse = withContext(Dispatchers.IO) {
+        try {
+            val result = newAgent().run(agentInput = message)
+            ChatResponse(success = true, answer = result)
+        } catch (e: Exception) {
+            ChatResponse(success = false, error = e.message)
+        }
     }
 }
