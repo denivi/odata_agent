@@ -8,17 +8,23 @@ import io.ktor.client.engine.cio.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 @LLMDescription("Tools for working with the Odata interface. " +
         "They allow you to receive various data from their remote information system.")
 class OdataToolSet: ToolSet {
 
     @Tool
-    @LLMDescription("The tool gets a description of all metadata objects of the remote system." +
-            "The response is received in json format, where the name attribute is the name of the metadata object, " +
-            "and the url attribute is a link to the metadata object." +
-            "list object metadata:" +
-            "Constant - Константы")
+    @LLMDescription("Инструмент для получения полного списка метаданных системы. " +
+            "Возвращает JSON с массивом объектов, каждый содержит name (название) и url (ссылка). " +
+            "Используй этот инструмент когда нужен полный список всех метаданных. " +
+            "Префиксы метаданных: " +
+            "'Constant_'  - константы" +
+            "'AccumulationRegister_' - регистр накопления" +
+            "'InformationRegister_' - регистр сведений")
     suspend fun getFullMetaData():String {
 
         val url = $$"http://77.95.56.147:65525/DevelopDaily/odata/standard.odata/?$format=json;odata=fullmetadata"
@@ -48,6 +54,37 @@ class OdataToolSet: ToolSet {
                 "response": $responseBody
             }
             """.trimIndent()
+        }
+    }
+
+    @Tool
+    @LLMDescription("Инструмент для получения ТОЛЬКО констант системы. " +
+            "Фильтрует метаданные и возвращает только объекты-константы. " +
+            "Используй когда нужны именно константы. " +
+            "Возвращает JSON массив с константами в формате {name: 'НазваниеНаРусском'}")
+    suspend fun getConstants(): String {
+        val url = "http://77.95.56.147:65525/DevelopDaily/odata/standard.odata/?\$format=json;odata=fullmetadata"
+        try {
+            val response = executeTool(url, "get_constants")
+
+            // Парсим JSON и фильтруем только константы
+            val jsonObject = Json.parseToJsonElement(response).jsonObject
+            val valueArray = jsonObject["value"]?.jsonArray ?: emptyList()
+
+            val constants = valueArray
+                .map { it.jsonObject }
+                .filter { it["name"]?.jsonPrimitive?.content?.startsWith("Constant_") == true }
+                .map {
+                    val originalName = it["name"]?.jsonPrimitive?.content ?: ""
+                    // Убираем префикс "Constant_" и оставляем русское название
+                    val russianName = originalName.removePrefix("Constant_")
+                    mapOf("name" to russianName)
+                }
+
+            return Json.encodeToString(constants)
+
+        } catch (e: Exception) {
+            return """{"error": "${e.message}"}"""
         }
     }
 

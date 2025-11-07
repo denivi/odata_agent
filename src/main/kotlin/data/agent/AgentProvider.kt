@@ -12,7 +12,7 @@ import kotlinx.coroutines.withContext
 import org.example.Config
 import org.example.PROMPT
 import org.example.data.dto.ChatResponse
-import org.example.data.tools.OdataToolSet
+import org.example.data.tools.DataQueryToolSet
 
 class AgentProvider {
 
@@ -32,9 +32,8 @@ class AgentProvider {
     }
 
     // Реестр инструментов, доступных агенту.
-    // Добавляем набор инструментов — MathTools (можно расширять) (в качестве примера).
     private val toolRegistry = ToolRegistry {
-        tools(OdataToolSet())
+        tools(DataQueryToolSet())
     }
 
     //  - функциональная стратегия выполнения.
@@ -51,6 +50,7 @@ class AgentProvider {
 
         // 3) По завершении цикла должен остаться один финальный ответ ассистента.
         responses.single().asAssistantMessage().content
+
     }
 
     // Создаём новый агент под каждый запрос:
