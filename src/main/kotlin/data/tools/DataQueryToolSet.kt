@@ -3,67 +3,145 @@ package org.example.data.tools
 import ai.koog.agents.core.tools.annotations.LLMDescription
 import ai.koog.agents.core.tools.annotations.Tool
 import ai.koog.agents.core.tools.reflect.ToolSet
-import io.ktor.client.HttpClient
-import io.ktor.client.engine.cio.CIO
-import io.ktor.client.plugins.timeout
-import io.ktor.client.request.get
-import io.ktor.client.request.header
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
-import io.ktor.client.statement.HttpResponse
-import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
-import io.ktor.http.HttpHeaders
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
+import io.ktor.client.*
+import io.ktor.client.engine.cio.*
+import io.ktor.client.plugins.*
+import io.ktor.client.request.*
+import io.ktor.client.statement.*
+import io.ktor.http.*
+import kotlinx.serialization.json.*
+import org.example.data.dto.AllMetaDataResponse
+import org.example.data.dto.NotRefClassMetaDataResponse
+import org.example.data.dto.PropertyClass
+import org.example.data.dto.RefClassMetaDataResponse
+import org.example.data.dto.TypesMetaDataResponse
 
-@LLMDescription("Инструменты для генерации запросов на языке 1С и получения произвольных данных из учетной системы")
+@LLMDescription(
+    """
+        Инструменты для генерации запросов на языке 1С и получения
+        "произвольных данных из учетной системы""")
 class DataQueryToolSet(
     private val baseUrl: String = "http://77.95.56.147:65525/DevelopDaily/hs/agent_smart_api_v1"
-): ToolSet {
+) : ToolSet {
 
     @Tool
     @LLMDescription("""
-    Инструмент получает полный каталог метаданных учетной системы.
-    Возвращает структурированный список всех объектов системы: справочники, документы, регистры и т.д.
-    
-    СТРУКТУРА ОТВЕТА:
-    - type: тип объекта (Справочники, Документы, РегистрыСведений, etc)
-    - id: уникальный идентификатор для обращения к объекту
-    - name: системное имя объекта
-    - title: человеко-читаемое название на русском
-    
-    ИСПОЛЬЗОВАНИЕ:
-    - Используй первым чтобы понять какие объекты есть в системе
-    - Для детальной информации об объекте используй getClassMetadata
-    - Для поиска конкретного объекта фильтруй по полям name или title
-""")
-    suspend fun getAllMetadata():String{
+        Получает все типы метаданных учетной системы
+        Типы следует использовать для того чтобы получить список классов метаданных определенного типа
+        Например:
+        Инструмент возвращает следующий список:
+         - Документы
+         - Справочники
+         - РегистрыСведений
+         - РегистрыНакопления
+         Для того чтобы получить список классов выбранного типа нужно вызвать инструмент GetMetadataByType 
+         и передать выбранный тип параметром GetMetadataByType(Справочники) 
+    """)
+    suspend fun getTypesMetaData(): String{
 
-        val url =  "$baseUrl/get-all-metadata"
+        val url = "$baseUrl/get-types-metadata"
         return try {
-            val response = executeGetTool(url, "getAllMetadata")
+            val response = executeGetTool(url, "getTypesMetaData")
+            val json = Json.parseToJsonElement(response)
 
-            // Парсим и переформатируем для лучшей читаемости LLM
-            val formattedResponse = formatMetadataResponse(response)
+            val formatedResponse = MetadataFormatter.formatGetTypesMetaDataForLLM(json)
+            println("📤 форматированный ответ инструмента  get-types-metadata $formatedResponse")
+            formatedResponse
+        }catch (e: Exception){
+            println("❌ Ошибка в get-types-metadata: ${e.message}")
 
-            // Возвращаем чистые данные без лишних оберток
-            formattedResponse
-        } catch (e: Exception) {
-            // Структурированная ошибка для LLM
-            """{
-            "error_type": "metadata_retrieval_failed",
-            "message": "Не удалось получить метаданные системы",
-            "details": "${e.message}",
-            "suggestion": "Проверьте доступность сервера и повторите запрос"
-        }"""
+            // Простая структурированная ошибка
+            buildString {
+                appendLine("ОШИБКА при получении метаданных:")
+                appendLine("• Сообщение: ${e.message}")
+                appendLine("• Тип: ${e.javaClass.simpleName}")
+                appendLine()
+                appendLine("Рекомендации:")
+                appendLine("1. Проверьте доступность сервера")
+                appendLine("2. Убедитесь что API возвращает корректный JSON")
+                appendLine("3. Проверьте права доступа")
+            }
         }
+
     }
 
     @Tool
-    @LLMDescription("""
+    @LLMDescription(
+        """
+Получает каталог метаданных определенного типа.
+Запрещено использовать без предварительного вызова инструмента getTypesMetaData()
+Требуется использовать для каждого типа метаданных, чтобы найти самый правильный ответ
+
+ДЛЯ ИНФОРМАЦИОННЫХ ВОПРОСОВ ("что такое X?", "к какому типу X?"):
+1. Вызови этот инструмент с параметром тип метаданных, возможно этот инструмент придется вызвать для каждого 
+    типа метаданных
+2. НАЙДИ конкретный объект в результатах
+3. ОТВЕТЬ ПРЯМО пользователю
+
+Пример:
+- Вопрос: "К какому типу относятся ресурсы?"
+- Находишь: {type: "Справочники", name: "Ресурсы"}
+- Отвечаешь: "Ресурсы - это справочник системы"
+
+❌ НЕ говори "используйте поиск..."
+✅ Давай конкретный ответ
+
+ДЛЯ ЗАПРОСОВ ДАННЫХ:
+- Используй для поиска нужного объекта метаданных
+- Затем вызывай getClassMetadata для изучения структуры
+- Затем генерируй и выполняй SQL-запрос
+
+СТРУКТУРА ОТВЕТА:
+- type: тип объекта (Справочники, Документы, РегистрыСведений)
+- id: идентификатор для запросов
+- name: системное имя
+- title: русское название
+"""
+    )
+    suspend fun getMetadataByType(type: String): String {
+
+        val url = "$baseUrl/get-all-metadata"
+        return try {
+            val requestBody = """
+        {
+            "request": {
+                "type": "$type"
+            }
+        }
+        """.trimIndent()
+
+            val response = executePostTool(url, requestBody, "getMetadataByType")
+
+            // Парсим JSON
+            val json = Json.parseToJsonElement(response)
+
+            // Формируем удобный для LLM текст
+            val formatedResponse = MetadataFormatter.formatAllMetaDataForLLM(json)
+            println("📤 форматированный ответ инструмента  get-metadata-by-type $formatedResponse")
+            formatedResponse
+
+        } catch (e: Exception) {
+            println("❌ Ошибка в get-metadata-by-type: ${e.message}")
+            e.printStackTrace()
+
+            // Простая структурированная ошибка
+            buildString {
+                appendLine("ОШИБКА при получении метаданных:")
+                appendLine("• Сообщение: ${e.message}")
+                appendLine("• Тип: ${e.javaClass.simpleName}")
+                appendLine()
+                appendLine("Рекомендации:")
+                appendLine("1. Проверьте доступность сервера")
+                appendLine("2. Убедитесь что API возвращает корректный JSON")
+                appendLine("3. Проверьте права доступа")
+            }
+        }
+
+    }
+
+    @Tool
+    @LLMDescription(
+        """
     Инструмент получает детальное описание конкретного объекта метаданных системы.
     
     Параметры:
@@ -80,13 +158,11 @@ class DataQueryToolSet(
     - getClassMetadata("Документы", "ЗаявкаНаРемонт") - структура документа с его реквизитами
     - getClassMetadata("РегистрыСведений", "Цены") - структура регистра с измерениями и ресурсами
     
-    ПРЕДУПРЕЖДЕНИЕ:
-    - Тип и класс должны точно соответствовать значениям из getAllMetadata
-    - Используй searchMetadata если не уверен в точном названии
-""")
-    suspend fun getClassMetadata(metaDataType: String, metaDataClass: String):String{
+"""
+    )
+    suspend fun getClassMetadata(metaDataType: String, metaDataClass: String): String {
 
-        val url =  "$baseUrl/get-class-metadata"
+        val url = "$baseUrl/get-class-metadata"
 
         return try {
             // Формируем JSON тело запроса
@@ -100,9 +176,18 @@ class DataQueryToolSet(
         """.trimIndent()
 
             val response = executePostTool(url, requestBody, "getClassMetadata")
+            val json = Json.parseToJsonElement(response)
+            val isRef: Boolean = json.jsonObject["response"]?.jsonObject["is_ref"].toString().toBoolean()
+            val formatClassMetadata: String by lazy {
+                if (isRef) {
+                    MetadataFormatter.formatRefClassMetaDataForLLM(json)
+                } else {
+                    MetadataFormatter.formatNotRefClassMetaDataForLLM(json)
+                }
+            }
 
-            // Форматируем ответ для лучшей читаемости LLM
-            formatClassMetadataResponse(response, metaDataType, metaDataClass)
+            //println("📤 форматированный ответ инструмента  get_class_metadata \n $formatClassMetadata")
+            formatClassMetadata
 
         } catch (e: Exception) {
             """{
@@ -121,7 +206,59 @@ class DataQueryToolSet(
     }
 
     @Tool
-    @LLMDescription("""
+    @LLMDescription("""""
+    Инструмент получает описание справку по заданному объекту системы
+        
+    Параметры:
+    - metaDataType: тип объекта (Справочники, Документы, РегистрыСведений, РегистрыНакопления, ПланыСчетов, etc)
+    - metaDataClass: системное имя класса (например: "ОбъектыОбслуживания", "ЗаявкиНаРемонт")
+    
+    ВОЗВРАЩАЕМАЯ ИНФОРМАЦИЯ:
+    - описание функционала (функциональная роль) объекта в учетной системе
+    - общее справочное описание полей объекта
+    - общее описание связанных с объектом сущностей (другие объекты системы, специальные алгоритмы, и прочее)
+    
+    ПРИМЕРЫ ИСПОЛЬЗОВАНИЯ:
+    - getReference("Справочники", "ОбъектыОбслуживания") - справочная информация по запрошенному объекту системы
+    
+     ПРЕДУПРЕЖДЕНИЕ:
+    - Тип и класс должны точно соответствовать значениям из getAllMetadata
+    - Используй searchMetadata если не уверен в точном названии
+    """")
+    suspend fun getReference(metaDataType: String, metaDataClass: String): String {
+
+        val url = "$baseUrl/get-reference"
+
+        return try {
+            // Формируем JSON тело запроса
+            val requestBody = """
+        {
+            "request": {
+                "type": "$metaDataType",
+                "class": "$metaDataClass"
+            }
+        }
+        """.trimIndent()
+
+            val response = executePostTool(url, requestBody, "getReference")
+            val json = Json.parseToJsonElement(response)
+            val textResponse = json.jsonObject["response"].toString()
+            println("📤 форматированный ответ инструмента  get_reference \n $textResponse")
+            textResponse
+
+        } catch (e: Exception) {
+            """{
+            "error_type": "get_reference_retrieval_failed",
+            "message": "Не удалось получить справку по объекту ТОиР",
+            "details": "${e.message}",
+            "suggestion": "Проверьте доступность сервера и повторите запрос"
+        }"""
+        }
+    }
+
+    @Tool
+    @LLMDescription(
+        """
     Инструмент получает полную справку по языку запросов 1С - русскоязычному аналогу SQL.
     
     ВОЗВРАЩАЕМАЯ ИНФОРМАЦИЯ:
@@ -141,15 +278,17 @@ class DataQueryToolSet(
     - Язык запросов 1С использует русские ключевые слова
     - Структура похожа на SQL но с особенностями
     - Всегда проверяй существование таблиц и полей через getClassMetadata
-""")
-    suspend fun getQueryLanguageDescription():String{
+"""
+    )
+    suspend fun getQueryLanguageDescription(): String {
 
         val url = "$baseUrl/get-query-language-description"
         return try {
             val response = executeGetTool(url, "getQueryLanguageDescription")
-
-            // Форматируем ответ для лучшей читаемости LLM
-            formatQueryLanguageResponse(response)
+            val json = Json.parseToJsonElement(response)
+            val textResponse = json.jsonObject["response"].toString()
+            //println("📤 форматированный ответ инструмента  get_query_language_description \n $textResponse")
+            textResponse
         } catch (e: Exception) {
             """{
             "error_type": "language_description_retrieval_failed",
@@ -161,7 +300,8 @@ class DataQueryToolSet(
     }
 
     @Tool
-    @LLMDescription("""
+    @LLMDescription(
+        """
     Инструмент выполняет сгенерированный запрос на языке 1С и возвращает результат.
     
     КРИТИЧЕСКИ ВАЖНО:
@@ -187,10 +327,11 @@ class DataQueryToolSet(
     - Всегда тестируй запросы с ПЕРВЫЕ N перед выполнением полной выборки
     - Используй псевдонимы (КАК) для улучшения читаемости результатов
     - Проверяй существование таблиц через getClassMetadata перед выполнением
-""")
-    suspend fun executeQuery(query: String):String{
+"""
+    )
+    suspend fun executeQuery(query: String): String {
 
-        val url =  "$baseUrl/execute-query"
+        val url = "$baseUrl/execute-query"
 
         return try {
             // Валидация базового синтаксиса
@@ -256,7 +397,7 @@ class DataQueryToolSet(
                 responseBody
             }
         } catch (e: Exception) {
-                throw Exception("HTTP ошибка при вызове $toolName: ${e.message}")
+            throw Exception("HTTP ошибка при вызове $toolName: ${e.message}")
         }
 
     }
@@ -265,273 +406,27 @@ class DataQueryToolSet(
     private suspend fun executePostTool(url: String, requestBody: String, toolName: String): String {
         return try {
             HttpClient(CIO).use { client ->
-            val response: HttpResponse = client.post(url) {
-                header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
-                header(HttpHeaders.Accept, "application/json")
-                setBody(requestBody)
-                timeout {
-                    requestTimeoutMillis = 20000
-                    connectTimeoutMillis = 10000
+                val response: HttpResponse = client.post(url) {
+                    header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                    header(HttpHeaders.Accept, "application/json")
+                    setBody(requestBody)
+                    timeout {
+                        requestTimeoutMillis = 20000
+                        connectTimeoutMillis = 10000
+                    }
                 }
-            }
 
-            val responseBody = response.bodyAsText()
-            println("🔧 [TOOL] $toolName - Status: ${response.status}")
-            println("📤 [REQUEST] $requestBody")
+                val responseBody = response.bodyAsText()
+                println("🔧 [TOOL] $toolName - Status: ${response.status}")
+                println("📤 [REQUEST] $requestBody")
 
-            responseBody
+                responseBody
             }
         } catch (e: Exception) {
             throw Exception("HTTP ошибка при вызове $toolName: ${e.message}")
         }
     }
 
-    // Улучшенный форматировщик для нового формата метаданных
-    private fun formatMetadataResponse(rawResponse: String): String {
-        return try {
-            val json = Json.parseToJsonElement(rawResponse)
-
-            // Создаем структурированный ответ с группировкой по типам
-            val result = buildString {
-                appendLine("{")
-                appendLine("  \"metadata_summary\": \"Полный каталог объектов системы\",")
-                appendLine("  \"total_categories\": ${json.jsonObject.size},")
-                appendLine("  \"categories\": [")
-
-                var firstCategory = true
-                json.jsonObject.forEach { (categoryName, itemsArray) ->
-                    if (!firstCategory) appendLine("    ,")
-                    appendLine("    {")
-                    appendLine("      \"category\": \"$categoryName\",")
-                    appendLine("      \"count\": ${itemsArray.jsonArray.size},")
-                    appendLine("      \"items\": [")
-
-                    var firstItem = true
-                    itemsArray.jsonArray.forEach { item ->
-                        if (!firstItem) appendLine("        ,")
-                        val itemObj = item.jsonObject
-                        appendLine("        {")
-                        appendLine("          \"type\": \"${itemObj["type"]?.jsonPrimitive?.content ?: ""}\",")
-                        appendLine("          \"id\": \"${itemObj["id"]?.jsonPrimitive?.content ?: ""}\",")
-                        appendLine("          \"name\": \"${itemObj["name"]?.jsonPrimitive?.content ?: ""}\",")
-                        appendLine("          \"title\": \"${itemObj["title"]?.jsonPrimitive?.content ?: ""}\"")
-                        append("        }")
-                        firstItem = false
-                    }
-                    appendLine()
-                    appendLine("      ]")
-                    append("    }")
-                    firstCategory = false
-                }
-                appendLine()
-                appendLine("  ]")
-                append("}")
-            }
-
-            result
-        } catch (e: Exception) {
-            // Если не удалось отформатировать, возвращаем как есть
-            rawResponse
-        }
-    }
-
-    // Форматирование ответа для детальной метаинформации
-    private fun formatClassMetadataResponse(rawResponse: String, type: String, className: String): String {
-        return try {
-            val json = Json.parseToJsonElement(rawResponse)
-
-            // Создаем структурированный ответ с анализом объекта
-            buildString {
-                appendLine("{")
-                appendLine("  \"metadata_object\": {")
-                appendLine("    \"type\": \"$type\",")
-                appendLine("    \"class\": \"$className\",")
-
-                // Извлекаем основные свойства если они есть
-                val name = json.jsonObject["name"]?.jsonPrimitive?.content ?: className
-                val title = json.jsonObject["title"]?.jsonPrimitive?.content ?: "Не указано"
-                val description = json.jsonObject["description"]?.jsonPrimitive?.content ?: "Описание отсутствует"
-
-                appendLine("    \"name\": \"$name\",")
-                appendLine("    \"title\": \"$title\",")
-                appendLine("    \"description\": \"$description\",")
-
-                // Анализируем структуру объекта
-                appendLine("    \"structure_analysis\": {")
-
-                // Поля/реквизиты
-                val fields = json.jsonObject["fields"]?.jsonArray
-                if (fields != null) {
-                    appendLine("      \"fields_count\": ${fields.size},")
-                    appendLine("      \"fields_preview\": [")
-                    fields.take(5).forEachIndexed { index, field ->
-                        if (index > 0) appendLine("        ,")
-                        val fieldName = field.jsonObject["name"]?.jsonPrimitive?.content ?: "unknown"
-                        val fieldType = field.jsonObject["type"]?.jsonPrimitive?.content ?: "unknown"
-                        appendLine("        {\"name\": \"$fieldName\", \"type\": \"$fieldType\"}")
-                    }
-                    if (fields.size > 5) appendLine("        ,{\"note\": \"... и еще ${fields.size - 5} полей\"}")
-                    appendLine("      ]")
-                } else {
-                    appendLine("      \"fields_count\": 0,")
-                    appendLine("      \"note\": \"Поля не определены или скрыты\"")
-                }
-
-                appendLine("    },")
-
-                // Табличные части (для документов)
-                val tableSections = json.jsonObject["tableSections"]?.jsonArray
-                if (tableSections != null && tableSections.isNotEmpty()) {
-                    appendLine("    \"table_sections\": [")
-                    tableSections.forEachIndexed { index, section ->
-                        if (index > 0) appendLine("      ,")
-                        val sectionName = section.jsonObject["name"]?.jsonPrimitive?.content ?: "unknown"
-                        appendLine("      \"$sectionName\"")
-                    }
-                    appendLine("    ],")
-                }
-
-                // Методы и операции
-                val methods = json.jsonObject["methods"]?.jsonArray
-                if (methods != null && methods.isNotEmpty()) {
-                    appendLine("    \"available_methods_count\": ${methods.size},")
-                }
-
-                // Полные исходные данные
-                appendLine("    \"raw_metadata\": $rawResponse")
-
-                appendLine("  }")
-                append("}")
-            }
-        } catch (e: Exception) {
-            // Если не удалось отформатировать, возвращаем как есть с базовой информацией
-            """{
-            "metadata_object": {
-                "type": "$type",
-                "class": "$className", 
-                "raw_response": $rawResponse,
-                "format_note": "Ответ не был отформатирован из-за ошибки: ${e.message}"
-            }
-        }"""
-        }
-    }
-
-    private fun formatQueryLanguageResponse(rawResponse: String): String {
-        return try {
-            val json = Json.parseToJsonElement(rawResponse)
-            val responseObj = json.jsonObject["response"]?.jsonObject ?: return rawResponse
-
-            // Извлекаем и очищаем тексты из каждой области
-            val keywords = cleanQueryText(responseObj["keywords"]?.jsonPrimitive?.content ?: "")
-            val functions = cleanQueryText(responseObj["functions"]?.jsonPrimitive?.content ?: "")
-            val operators = cleanQueryText(responseObj["operators"]?.jsonPrimitive?.content ?: "")
-            val join = cleanQueryText(responseObj["join"]?.jsonPrimitive?.content ?: "")
-
-            // Создаем структурированный ответ
-            buildString {
-                appendLine("{")
-                appendLine("  \"query_language_reference\": \"Язык запросов 1С - полная справка\",")
-                appendLine("  \"sections\": {")
-
-                // Раздел ключевых слов
-                appendLine("    \"keywords\": {")
-                appendLine("      \"description\": \"Основные ключевые слова языка запросов\",")
-                appendLine("      \"quick_reference\": [")
-                appendLine("        \"ВЫБРАТЬ - начало запроса, выбор полей\",")
-                appendLine("        \"ИЗ - указание источника данных\",")
-                appendLine("        \"ГДЕ - условия отбора\",")
-                appendLine("        \"УПОРЯДОЧИТЬ ПО - сортировка результатов\",")
-                appendLine("        \"СГРУППИРОВАТЬ ПО - группировка и агрегация\",")
-                appendLine("        \"ПЕРВЫЕ N - ограничение количества записей\",")
-                appendLine("        \"РАЗРЕШЕННЫЕ - с учетом прав доступа RLS\",")
-                appendLine("        \"РАЗЛИЧНЫЕ - удаление дубликатов\"")
-                appendLine("      ],")
-                appendLine("      \"detailed_explanation\": \"$keywords\",")
-                appendLine("      \"common_use_cases\": [")
-                appendLine("        \"Простые SELECT запросы\",")
-                appendLine("        \"Группировка и агрегация данных\",")
-                appendLine("        \"Сортировка и ограничение выборки\",")
-                appendLine("        \"Работа с временными таблицами\"")
-                appendLine("      ]")
-                appendLine("    },")
-
-                // Раздел функций
-                appendLine("    \"functions\": {")
-                appendLine("      \"description\": \"Встроенные функции языка запросов\",")
-                appendLine("      \"categories\": {")
-                appendLine("        \"string_functions\": \"ДлинаСтроки, Врег, Нрег, СтрНайти, СтрЗаменить, ПОДСТРОКА\",")
-                appendLine("        \"math_functions\": \"ACos, ASin, ATan, Cos, Sin, Exp, Log, Pow, Sqrt, Окр, Цел\",")
-                appendLine("        \"date_functions\": \"ГОД, МЕСЯЦ, ДЕНЬ, НАЧАЛОПЕРИОДА, КОНЕЦПЕРИОДА, РАЗНОСТЬДАТ\",")
-                appendLine("        \"aggregate_functions\": \"СУММА, КОЛИЧЕСТВО, СРЕДНЕЕ, МАКСИМУМ, МИНИМУМ\",")
-                appendLine("        \"type_functions\": \"ТИП, ТИПЗНАЧЕНИЯ, ПРЕДСТАВЛЕНИЕ, ЕСТЬNULL\"")
-                appendLine("      },")
-                appendLine("      \"detailed_explanation\": \"$functions\"")
-                appendLine("    },")
-
-                // Раздел операторов
-                appendLine("    \"operators\": {")
-                appendLine("      \"description\": \"Операторы для условий и выражений\",")
-                appendLine("      \"types\": {")
-                appendLine("        \"arithmetic\": \"+, -, *, / (для чисел), + (для строк)\",")
-                appendLine("        \"comparison\": \">, <, =, >=, <=, <>\",")
-                appendLine("        \"logical\": \"И, ИЛИ, НЕ\",")
-                appendLine("        \"special\": \"ПОДОБНО (LIKE), МЕЖДУ (BETWEEN), В (IN), ЕСТЬ NULL (IS NULL)\",")
-                appendLine("        \"type_operators\": \"ВЫБОР (CASE), ВЫРАЗИТЬ (CAST), ССЫЛКА (TYPE CHECK)\"")
-                appendLine("      },")
-                appendLine("      \"detailed_explanation\": \"$operators\"")
-                appendLine("    },")
-
-                // Раздел соединений
-                appendLine("    \"joins\": {")
-                appendLine("      \"description\": \"Типы соединений таблиц\",")
-                appendLine("      \"join_types\": [")
-                appendLine("        \"ЛЕВОЕ СОЕДИНЕНИЕ - LEFT JOIN\",")
-                appendLine("        \"ПРАВОЕ СОЕДИНЕНИЕ - RIGHT JOIN\",")
-                appendLine("        \"ПОЛНОЕ СОЕДИНЕНИЕ - FULL OUTER JOIN\",")
-                appendLine("        \"ВНУТРЕННЕЕ СОЕДИНЕНИЕ - INNER JOIN\"")
-                appendLine("      ],")
-                appendLine("      \"syntax_example\": \"ЛЕВОЕ СОЕДИНЕНИЕ Таблица2 ПО Таблица1.Поле = Таблица2.Поле\",")
-                appendLine("      \"special_notes\": [")
-                appendLine("        \"Конструктор запросов не поддерживает ПРАВОЕ СОЕДИНЕНИЕ\",")
-                appendLine("        \"CROSS JOIN реализуется через ПО ИСТИНА\",")
-                appendLine("        \"Тип соединения влияет на результат при пустых таблицах\"")
-                appendLine("      ],")
-                appendLine("      \"detailed_explanation\": \"$join\"")
-                appendLine("    }")
-                appendLine("  },")
-
-                // Практические примеры
-                appendLine("  \"practical_examples\": {")
-                appendLine("    \"simple_select\": \"ВЫБРАТЬ * ИЗ Справочник.ОбъектыОбслуживания\",")
-                appendLine("    \"select_with_conditions\": \"ВЫБРАТЬ Наименование, Статус ИЗ Справочник.ОбъектыОбслуживания ГДЕ Статус = 'Активный' УПОРЯДОЧИТЬ ПО Наименование\",")
-                appendLine("    \"aggregation\": \"ВЫБРАТЬ Подразделение, КОЛИЧЕСТВО(*) КАК КоличествоОбъектов ИЗ Справочник.ОбъектыОбслуживания СГРУППИРОВАТЬ ПО Подразделение\",")
-                appendLine("    \"join_example\": \"ВЫБРАТЬ Объекты.Наименование, Подразделения.Наименование КАК Подразделение ИЗ Справочник.ОбъектыОбслуживания КАК Объекты ЛЕВОЕ СОЕДИНЕНИЕ Справочник.Подразделения КАК Подразделения ПО Объекты.Подразделение = Подразделения.Ссылка\"")
-                appendLine("  },")
-                appendLine("  \"quick_tips\": [")
-                appendLine("    \"Всегда используй псевдонимы (КАК) для полей и таблиц\",")
-                appendLine("    \"Проверяй существование таблиц через getClassMetadata перед генерацией запроса\",")
-                appendLine("    \"Для отладки сначала тестируй простые SELECT * запросы\",")
-                appendLine("    \"Используй ПЕРВЫЕ N для ограничения больших выборок при тестировании\",")
-                appendLine("    \"Учитывай права доступа - используй РАЗРЕШЕННЫЕ при работе с защищенными данными\"")
-                appendLine("  ]")
-                append("}")
-            }
-        } catch (e: Exception) {
-            // Возвращаем исходный ответ если не удалось отформатировать
-            rawResponse
-        }
-    }
-
-    // Очистка текста от лишних форматирований
-    private fun cleanQueryText(text: String): String {
-        return text
-            .replace("#Область[^\\n]+\\n".toRegex(), "")
-            .replace("#КонецОбласти".toRegex(), "")
-            .replace("\t", "  ")
-            .replace("\"", "\\\"")
-            .replace(Regex("\\n\\s*\\n"), "\n")
-            .trim()
-    }
 
     private fun validateQuerySyntax(query: String): QueryValidationResult {
         val errors = mutableListOf<String>()
@@ -715,6 +610,146 @@ class DataQueryToolSet(
                     "Обратитесь к администратору системы"
                 )
             )
+        }
+    }
+
+}
+
+object MetadataFormatter {
+    private val jsonConfig = Json {
+        ignoreUnknownKeys = true
+        coerceInputValues = true
+    }
+
+    fun formatGetTypesMetaDataForLLM(jsonElement: JsonElement): String{
+        return try {
+            val apiData = jsonConfig.decodeFromJsonElement<TypesMetaDataResponse>(jsonElement)
+            val types = apiData.response.types
+            if (types.isEmpty()) return "⚠️ Каталог пуст"
+            buildString {
+                appendLine("# КАТАЛОГ ДОСТУПНЫХ ТИПОВ МЕТАДАННЫХ СИСТЕМЫ")
+
+                types.forEach { type ->
+                        if (type.isEmpty()) return@forEach
+
+                        // Используем Markdown-заголовки (эффективнее для LLM)
+                        appendLine(" - $type")
+                }
+            }
+        }catch (e: Exception){
+            "❌ Ошибка данных: ${e.localizedMessage}"
+        }
+    }
+
+    fun formatAllMetaDataForLLM(jsonElement: JsonElement): String {
+        return try {
+            // 1. Десериализация в типизированные объекты
+            val apiData = jsonConfig.decodeFromJsonElement<AllMetaDataResponse>(jsonElement)
+            val type = apiData.response.type
+            val classes = apiData.response.classes
+
+            if (classes.isEmpty()) return "⚠️ Каталог пуст"
+
+            buildString {
+                appendLine("# СИСТЕМНЫЙ КАТАЛОГ МЕТАДАННЫХ")
+                appendLine("## Тип: $type")
+                classes.forEach {item ->
+                            // Сжатый формат: Название как ключевой элемент
+                            appendLine("- **${item.title}**")
+                            appendLine("  ID: ${item.id} | SysName: ${item.name}")
+                }
+
+                appendLine("\n### Инструкция по поиску:")
+                appendLine("Используй `title` для поиска. Если нет совпадений, проверь `SysName`. " +
+                        "Если результат не найден вызови инструмент снова со следующим параметром  - типом")
+            }
+        } catch (e: Exception) {
+            "❌ Ошибка данных: ${e.localizedMessage}"
+        }
+    }
+
+    fun formatRefClassMetaDataForLLM(jsonElement: JsonElement): String {
+        return try {
+            val apiData = jsonConfig.decodeFromJsonElement<RefClassMetaDataResponse>(jsonElement)
+
+            val objectProperties = apiData.response.properties
+            if (objectProperties.isEmpty()) return "⚠️ Каталог пуст"
+
+            buildString {
+                appendLine("# ОПИСАНИЕ ПОЛЕЙ МЕТАДАННЫХ")
+                appendLine("## РЕКВИЗИТЫ")
+                objectProperties.forEachIndexed { index, item ->
+                    val property = item.property
+                    appendLine(
+                        "---\n ${index + 1} ID: ${property.name} | Имя: ${property.title.ifEmpty { property.name }}"
+                    )
+                    appendLine("**типы данных**")
+                    val types = property.typesDescription.types
+                    val enums = property.typesDescription.enums
+                    types.forEach { item ->
+                        appendLine(" - ${item.type}")
+                    }
+                }
+                appendLine("## ТАБЛИЧНЫЕ ЧАСТИ")
+                val objectTables = apiData.response.tables
+                objectTables.forEach { item ->
+                    val table = item.table
+                    appendLine("** Табличная часть ${table.name} , синоним ${table.title}")
+                    val properties = table.properties
+                    properties.forEachIndexed { index, item ->
+                        val property = item.property
+                        appendLine("---\n ${index + 1}. ID: ${property.name} | Имя: ${property.title}")
+                        appendLine("**типы данных**")
+                        val types = property.typesDescription.types
+                        types.forEach { item ->
+                            appendLine(" - ${item.type}")
+                        }
+                        val enums = property.typesDescription.enums
+                        if (enums.isNotEmpty()) {
+                                appendLine("**значения перечислений**")
+                                enums.forEach { item ->
+                                    appendLine(" - ${item}")
+                                }
+                            }else ""
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            "❌ Ошибка данных: ${e.localizedMessage}"
+        }
+    }
+
+    fun formatNotRefClassMetaDataForLLM(jsonElement: JsonElement): String {
+        return try {
+            val apiData = jsonConfig.decodeFromJsonElement<NotRefClassMetaDataResponse>(jsonElement)
+            val data = apiData.response
+            buildString {
+                appendLine("# МЕТАДАННЫЕ РЕГИСТРА: ${data.name.uppercase()}")
+
+                // Вызываем общую логику для каждой категории
+                appendSection("ИЗМЕРЕНИЯ", data.dimensions)
+                appendSection("РЕСУРСЫ", data.resources)
+                appendSection("РЕКВИЗИТЫ", data.attributes)
+            }
+
+        } catch (e: Exception) {
+            "❌ Ошибка данных: ${e.localizedMessage}"
+        }
+    }
+
+    private fun StringBuilder.appendSection(title: String, items: List<PropertyClass>) {
+        if (items.isEmpty()) return
+
+        appendLine("\n## $title")
+        items.forEachIndexed { index, wrapper ->
+            val prop = wrapper.property
+            val types = prop.typesDescription.types.joinToString(", ") { it.type }
+            val enums = prop.typesDescription.enums.joinToString(", ") {it}
+            val name = prop.title.ifBlank { prop.name }
+
+            // Компактный формат: Индекс. Название [ID] (Типы)
+            appendLine("${index + 1}. **$name**")
+            appendLine("   ID: `${prop.name}` | Типы: [$types] | Перечисления: [$enums]")
         }
     }
 
