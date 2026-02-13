@@ -3,7 +3,6 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     application
 }
-
 application { mainClass.set("Main") }
 
 group = "org.example"
@@ -24,6 +23,7 @@ dependencies {
 
     // Ktor 3.x (совместим с Koog 0.5)
     implementation(libs.ktor.json)
+    implementation(enforcedPlatform(libs.ktor.bom))
 
     // Client
     implementation(libs.ktor.client.core)
@@ -37,6 +37,8 @@ dependencies {
     implementation(libs.ktor.server.content)
     implementation(libs.ktor.server.cors)
     implementation(libs.ktor.server.call)
+    implementation(libs.ktor.server.sessions)
+    implementation(libs.ktor.server.status.pages)
 
     // Koog
     implementation(libs.koog.agents)

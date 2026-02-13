@@ -9,7 +9,7 @@ import ai.koog.agents.core.dsl.extension.nodeLLMSendToolResult
 import ai.koog.agents.core.dsl.extension.onAssistantMessage
 import ai.koog.agents.core.dsl.extension.onToolCall
 
-fun testStrategy(): AIAgentGraphStrategy<String, String>{
+fun basicSimpleStrategy(): AIAgentGraphStrategy<String, String>{
     return strategy(name = "TestStrategy"){
 
         val nodeCallLLM by nodeLLMRequest()

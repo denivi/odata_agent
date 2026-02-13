@@ -1,11 +1,12 @@
 package org.example.data.agent
 
-import ai.koog.agents.core.agent.AIAgent
+import ai.koog.agents.core.agent.AIAgentService
 import ai.koog.agents.core.agent.config.AIAgentConfig
 import ai.koog.agents.core.agent.context.RollbackStrategy
 import ai.koog.agents.core.tools.ToolRegistry
 import ai.koog.agents.core.tools.reflect.tools
 import ai.koog.agents.snapshot.feature.Persistence
+import ai.koog.agents.snapshot.providers.InMemoryPersistenceStorageProvider
 import ai.koog.prompt.dsl.prompt
 import ai.koog.prompt.executor.llms.all.simpleOllamaAIExecutor
 import ai.koog.prompt.llm.LLMCapability
@@ -13,13 +14,14 @@ import ai.koog.prompt.llm.LLMProvider
 import ai.koog.prompt.llm.LLModel
 import ai.koog.prompt.params.LLMParams
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.example.Config
 import org.example.PROMPT
 import org.example.data.dto.ChatResponse
 import org.example.data.tools.DataQueryToolSet
-import org.example.domain.strategies.testStrategy
-import java.util.concurrent.ConcurrentHashMap
+import org.example.domain.strategies.basicSimpleStrategy
+import kotlin.time.Duration.Companion.minutes
 
 
 class AgentProvider {
@@ -62,27 +64,44 @@ class AgentProvider {
     )
 
     private val promptExecutor = simpleOllamaAIExecutor(Config.BASE_URL_LLM)
+    private val persistenceStorage = InMemoryPersistenceStorageProvider()
 
-    private fun newAgent() =
-        AIAgent(
-            promptExecutor = promptExecutor,
-            toolRegistry = toolRegistry,
-            strategy = testStrategy(), //createRadicallyImprovedStrategy()//createSimplifiedStrategy()//toolBasedStrategy
-            agentConfig = agentConfig
-            )
-
-    // Публичный метод: создать нового агента и получает ответ.
-    // Вынесено в IO-диспетчер, чтобы не блокировать основной поток.
-    suspend fun ask(message: String): ChatResponse = withContext(Dispatchers.IO) {
-        try {
-            println("📥 ЗАПРОС ПОЛЬЗОВАТЕЛЯ: '$message'")
-
-            val result = newAgent().run(agentInput = message)
-            println("📤 ОТВЕТ АГЕНТА: '$result'")
-
-            ChatResponse(success = true, answer = result)
-        } catch (e: Exception) {
-            ChatResponse(success = false, error = e.message)
+    private val agentService = AIAgentService(
+        promptExecutor = promptExecutor,
+        agentConfig = agentConfig,
+        strategy = basicSimpleStrategy(),
+        toolRegistry = toolRegistry
+    ) {
+        install(Persistence) {
+            storage = persistenceStorage
+            enableAutomaticPersistence = true
+            rollbackStrategy = RollbackStrategy.MessageHistoryOnly
         }
     }
+
+private val locks = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.sync.Mutex>()
+
+suspend fun ask(sessionId: String, message: String): ChatResponse = withContext(Dispatchers.IO) {
+    val mutex = locks.computeIfAbsent(sessionId) { kotlinx.coroutines.sync.Mutex() }
+
+    mutex.withLock {
+        println("📥 [$sessionId] USER: '$message'")
+
+        val result: String = agentService.createAgentAndRun(
+            id = sessionId,    // важно: один и тот же id = одна и та же “сессия” в persistence
+            agentInput = message
+        )
+
+        println("📤 [$sessionId] ASSISTANT: '$result'")
+        ChatResponse(success = true, answer = result)
+    }
 }
+
+    fun reset(sessionId: String) {
+        // Самый надежный reset без плясок с внутренностями storage:
+        // 1) на стороне клиента выдать новый X-Session-Id
+        // 2) лок здесь можно удалить
+        locks.remove(sessionId)
+    }
+}
+
