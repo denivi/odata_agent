@@ -13,4 +13,7 @@ object Config {
     // Модель LLM
     val MODEL_NAME: String = System.getenv("MODEL_NAME")
         ?: "qwen3:8b"
+
+    val BASE_URL_TOOL_SET: String = System.getenv("BASE_URL_TOOL_SET")
+    ?: "http://77.95.56.147:65525/DevelopDaily/hs/agent_smart_api_v1"
 }

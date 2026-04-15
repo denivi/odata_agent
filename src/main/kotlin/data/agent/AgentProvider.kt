@@ -1,4 +1,4 @@
-package org.example.data.agent
+package data.agent
 
 import ai.koog.agents.core.agent.AIAgentService
 import ai.koog.agents.core.agent.config.AIAgentConfig
@@ -13,15 +13,18 @@ import ai.koog.prompt.llm.LLMCapability
 import ai.koog.prompt.llm.LLMProvider
 import ai.koog.prompt.llm.LLModel
 import ai.koog.prompt.params.LLMParams
+import data.tools.GetMetaDataToolSet
+import data.tools.GetReferenceToolSet
+import data.tools.QueryToolSet
+import domain.strategies.basicSimpleStrategy
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.example.Config
 import org.example.PROMPT
 import org.example.data.dto.ChatResponse
-import org.example.data.tools.DataQueryToolSet
-import org.example.domain.strategies.basicSimpleStrategy
-import kotlin.time.Duration.Companion.minutes
+import java.util.concurrent.ConcurrentHashMap
 
 
 class AgentProvider {
@@ -43,7 +46,9 @@ class AgentProvider {
 
     // Реестр инструментов, доступных агенту.
     private val toolRegistry = ToolRegistry {
-        tools(DataQueryToolSet())
+        tools(GetMetaDataToolSet())
+        tools(QueryToolSet())
+        tools(GetReferenceToolSet())
     }
 
     private val prompt = prompt(
@@ -51,7 +56,7 @@ class AgentProvider {
         params = LLMParams(
             temperature = 0.1,
             numberOfChoices = 1,
-            toolChoice = LLMParams.ToolChoice.Auto
+            toolChoice = LLMParams.ToolChoice.Required
         )
     ){
         system(PROMPT.trimIndent())
@@ -79,10 +84,10 @@ class AgentProvider {
         }
     }
 
-private val locks = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.sync.Mutex>()
+private val locks = ConcurrentHashMap<String, Mutex>()
 
 suspend fun ask(sessionId: String, message: String): ChatResponse = withContext(Dispatchers.IO) {
-    val mutex = locks.computeIfAbsent(sessionId) { kotlinx.coroutines.sync.Mutex() }
+    val mutex = locks.computeIfAbsent(sessionId) { Mutex() }
 
     mutex.withLock {
         println("📥 [$sessionId] USER: '$message'")
