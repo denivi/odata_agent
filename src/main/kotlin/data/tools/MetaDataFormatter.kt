@@ -1,5 +1,6 @@
 package data.tools
 
+import data.dto.SimilarMetaDataResponse
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.decodeFromJsonElement
@@ -14,6 +15,24 @@ object MetaDataFormatter {
     private val jsonConfig = Json {
         ignoreUnknownKeys = true
         coerceInputValues = true
+    }
+
+    fun formatGetSimilarMetaDataForLLM(jsonElement: JsonElement): String {
+        return try {
+            val apiData = jsonConfig.decodeFromJsonElement<SimilarMetaDataResponse>(jsonElement)
+            val metaDataClasses = apiData.response
+            if (metaDataClasses.isEmpty()) return " ⚠️ По переданному поисковому шаблону не удалось найти метаданные"
+            buildString {
+                appendLine("# Найдены следующие объекты метаданных:")
+                metaDataClasses.forEachIndexed { index, item ->
+                    val classMetaData = item.classMetaData
+                    appendLine("${index + 1}. **${classMetaData.title}**")
+                    appendLine(" Type: ${classMetaData.type} ID: ${classMetaData.id} | SysName: ${classMetaData.name}")
+                }
+            }
+        }catch (e: Exception){
+            "❌ Ошибка данных: ${e.localizedMessage}"
+        }
     }
 
     fun formatGetTypesMetaDataForLLM(jsonElement: JsonElement): String{

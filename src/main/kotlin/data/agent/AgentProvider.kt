@@ -1,5 +1,6 @@
 package data.agent
 
+import EXPERIMENTAL_PROMPT
 import ai.koog.agents.core.agent.AIAgentService
 import ai.koog.agents.core.agent.config.AIAgentConfig
 import ai.koog.agents.core.agent.context.RollbackStrategy
@@ -13,8 +14,8 @@ import ai.koog.prompt.llm.LLMCapability
 import ai.koog.prompt.llm.LLMProvider
 import ai.koog.prompt.llm.LLModel
 import ai.koog.prompt.params.LLMParams
-import data.tools.GetMetaDataToolSet
 import data.tools.GetReferenceToolSet
+import data.tools.MetaDataToolSet
 import data.tools.QueryToolSet
 import domain.strategies.basicSimpleStrategy
 import kotlinx.coroutines.Dispatchers
@@ -22,7 +23,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.example.Config
-import org.example.PROMPT
+import PROMPT
 import org.example.data.dto.ChatResponse
 import java.util.concurrent.ConcurrentHashMap
 
@@ -40,13 +41,14 @@ class AgentProvider {
                 LLMCapability.Schema.JSON.Basic,
                 LLMCapability.Tools
             ),
-            contextLength = 40_960
+            contextLength = 32_768,
+            maxOutputTokens = 4_096
         )
     }
 
     // Реестр инструментов, доступных агенту.
     private val toolRegistry = ToolRegistry {
-        tools(GetMetaDataToolSet())
+        tools(MetaDataToolSet())
         tools(QueryToolSet())
         tools(GetReferenceToolSet())
     }
@@ -59,13 +61,13 @@ class AgentProvider {
             toolChoice = LLMParams.ToolChoice.Required
         )
     ){
-        system(PROMPT.trimIndent())
+        system(EXPERIMENTAL_PROMPT.trimIndent())
     }
 
     private val agentConfig = AIAgentConfig(
         prompt = prompt,
         model = ollamaModel,
-        maxAgentIterations = 20
+        maxAgentIterations = 40
     )
 
     private val promptExecutor = simpleOllamaAIExecutor(Config.BASE_URL_LLM)

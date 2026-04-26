@@ -14,6 +14,7 @@ import io.ktor.server.sessions.*
 import kotlinx.serialization.json.Json
 import org.example.Config.HTTP_PORT
 import data.agent.AgentProvider
+import data.agent.OpenAiAgentProvider
 import org.example.data.dto.ChatRequest
 import org.example.data.dto.ChatResponse
 import org.example.data.dto.ChatSession
@@ -92,6 +93,7 @@ fun Application.module() {
     }
 
     val agentProvider = AgentProvider()
+    // val agentProvider = OpenAiAgentProvider()
 
     routing {
         get("/health") {
