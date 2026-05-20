@@ -1,3 +1,4 @@
+@file:OptIn(kotlin.time.ExperimentalTime::class)
 package data.agent
 
 import EXPERIMENTAL_PROMPT
@@ -5,7 +6,6 @@ import ai.koog.agents.core.agent.AIAgentService
 import ai.koog.agents.core.agent.config.AIAgentConfig
 import ai.koog.agents.core.agent.context.RollbackStrategy
 import ai.koog.agents.core.tools.ToolRegistry
-import ai.koog.agents.core.tools.reflect.tools
 import ai.koog.agents.snapshot.feature.Persistence
 import ai.koog.agents.snapshot.providers.InMemoryPersistenceStorageProvider
 import ai.koog.prompt.dsl.prompt
@@ -24,6 +24,10 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.example.Config
 import PROMPT
+import ai.koog.agents.chatMemory.feature.ChatMemory
+import ai.koog.agents.chatMemory.feature.InMemoryChatHistoryProvider
+import ai.koog.agents.core.agent.AIAgent
+import domain.strategies.shortBasicSimpleStrategy
 import org.example.data.dto.ChatResponse
 import java.util.concurrent.ConcurrentHashMap
 
@@ -58,7 +62,7 @@ class AgentProvider {
         params = LLMParams(
             temperature = 0.1,
             numberOfChoices = 1,
-            toolChoice = LLMParams.ToolChoice.Required
+            toolChoice = LLMParams.ToolChoice.Auto
         )
     ){
         system(EXPERIMENTAL_PROMPT.trimIndent())
@@ -72,6 +76,7 @@ class AgentProvider {
 
     private val promptExecutor = simpleOllamaAIExecutor(Config.BASE_URL_LLM)
     private val persistenceStorage = InMemoryPersistenceStorageProvider()
+    private val chatHistoryProvider = LoggingInMemoryChatHistoryProvider()
 
     private val agentService = AIAgentService(
         promptExecutor = promptExecutor,
@@ -79,10 +84,29 @@ class AgentProvider {
         strategy = basicSimpleStrategy(),
         toolRegistry = toolRegistry
     ) {
+        install(ChatMemory) {
+            chatHistoryProvider = this@AgentProvider.chatHistoryProvider
+            windowSize(20)
+        }
         install(Persistence) {
             storage = persistenceStorage
             enableAutomaticPersistence = true
             rollbackStrategy = RollbackStrategy.MessageHistoryOnly
+        }
+    }
+
+    private val agent = AIAgent<String, String>(
+        promptExecutor = promptExecutor,
+        agentConfig = agentConfig,
+        strategy = basicSimpleStrategy(),
+        toolRegistry = toolRegistry
+    ) {
+        install(ChatMemory) {
+            // TODO: заменить in-memory ChatHistoryProvider на production-хранилище:
+            // - Redis, если нужна быстрая временная история с TTL
+            // - PostgreSQL/SQLite, если нужна долговременная история
+            chatHistoryProvider = this@AgentProvider.chatHistoryProvider
+            windowSize(20)
         }
     }
 
@@ -94,9 +118,9 @@ suspend fun ask(sessionId: String, message: String): ChatResponse = withContext(
     mutex.withLock {
         println("📥 [$sessionId] USER: '$message'")
 
-        val result: String = agentService.createAgentAndRun(
-            id = sessionId,    // важно: один и тот же id = одна и та же “сессия” в persistence
-            agentInput = message
+        val result: String = agent.run(
+            agentInput = message,
+            sessionId = sessionId
         )
 
         println("📤 [$sessionId] ASSISTANT: '$result'")

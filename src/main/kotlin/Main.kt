@@ -14,6 +14,7 @@ import io.ktor.server.sessions.*
 import kotlinx.serialization.json.Json
 import org.example.Config.HTTP_PORT
 import data.agent.AgentProvider
+import data.agent.LoggingInMemoryChatHistoryProvider
 import data.agent.OpenAiAgentProvider
 import org.example.data.dto.ChatRequest
 import org.example.data.dto.ChatResponse
@@ -105,7 +106,13 @@ fun Application.module() {
             val request = call.receive<ChatRequest>()
             require(request.message.isNotBlank()) { "message must not be blank" }
 
+            val headerId = call.request.headers["X-Session-Id"]?.trim()?.takeIf { it.isNotBlank() }
+            val cookieId = call.sessions.get<ChatSession>()?.id?.trim()?.takeIf { it.isNotBlank() }
+
             val sessionId = call.getOrCreateSessionId()
+            environment.log.info(
+                "SESSION DEBUG: headerId=$headerId cookieId=$cookieId usedSessionId=$sessionId"
+            )
             val response = agentProvider.ask(sessionId = sessionId, message = request.message)
 
             val status = if (response.success) HttpStatusCode.OK else HttpStatusCode.InternalServerError

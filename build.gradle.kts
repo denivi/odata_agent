@@ -42,6 +42,7 @@ dependencies {
 
     // Koog
     implementation(libs.koog.agents)
+    implementation(libs.koog.agents.memory)
 
     // Simple Logging Facade for Java
     implementation(libs.slf4j.simple)

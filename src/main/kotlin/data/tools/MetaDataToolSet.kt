@@ -35,7 +35,7 @@ class MetaDataToolSet(
             val response = executePostTool(url, requestBody, "getSimilarMetaData")
             val json = Json.parseToJsonElement(response)
             val formatedResponse = MetaDataFormatter.formatGetSimilarMetaDataForLLM(json)
-            println("📤 форматированный ответ инструмента  get-similar-metadata $formatedResponse")
+            //println("📤 форматированный ответ инструмента  get-similar-metadata $formatedResponse")
             formatedResponse
 
         } catch (e: Exception) {

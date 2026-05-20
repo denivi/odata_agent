@@ -107,10 +107,16 @@ object MetaDataFormatter {
                     )
                     appendLine("**типы данных**")
                     val types = property.typesDescription.types
-                    val enums = property.typesDescription.enums
                     types.forEach { item ->
                         appendLine(" - ${item.type}")
                     }
+                    val enums = property.typesDescription.enums
+                    if (enums.isNotEmpty()) {
+                        appendLine("**значения перечислений**")
+                        enums.forEach { item ->
+                            appendLine(" - ${item}")
+                        }
+                    }else ""
                 }
                 appendLine("## ТАБЛИЧНЫЕ ЧАСТИ")
                 val objectTables = apiData.response.tables

@@ -13,10 +13,19 @@ import ai.koog.agents.core.dsl.extension.onAssistantMessage
 import ai.koog.agents.core.dsl.extension.onToolCall
 import ai.koog.agents.core.environment.ReceivedToolResult
 
-private const val START_HISTORY_MSG_LIMIT = 12
+private const val START_HISTORY_MSG_LIMIT = 40
+private const val AFTER_TOOL_HISTORY_MSG_LIMIT = 50
+private const val KEEP_LAST_N_MESSAGES = 24
 
 private suspend fun AIAgentContext.historyIsLongAtStart(): Boolean =
-    llm.readSession { prompt.messages.size > START_HISTORY_MSG_LIMIT }
+    llm.readSession {
+        prompt.messages.size > START_HISTORY_MSG_LIMIT
+    }
+
+private suspend fun AIAgentContext.historyIsLongAfterTool(): Boolean =
+    llm.readSession {
+        prompt.messages.size > AFTER_TOOL_HISTORY_MSG_LIMIT
+    }
 
 fun basicSimpleStrategy(): AIAgentGraphStrategy<String, String> =
     strategy(name = "Basic-Simple-Strategy") {
@@ -25,32 +34,51 @@ fun basicSimpleStrategy(): AIAgentGraphStrategy<String, String> =
         val executeTool by nodeExecuteTool()
         val sendToolResult by nodeLLMSendToolResult()
 
-        // Компрессия перед новым запросом к LLM, если сессия уже длинная
         val compressBeforeCall by nodeLLMCompressHistory<String>(
-            strategy = HistoryCompressionStrategy.WholeHistory,
+            strategy = HistoryCompressionStrategy.FromLastNMessages(KEEP_LAST_N_MESSAGES),
             preserveMemory = true
         )
 
-        // Компрессия ПОСЛЕ КАЖДОГО tool-call — это ключевой момент
         val compressAfterTool by nodeLLMCompressHistory<ReceivedToolResult>(
-            strategy = HistoryCompressionStrategy.WholeHistory,
+            strategy = HistoryCompressionStrategy.FromLastNMessages(KEEP_LAST_N_MESSAGES),
             preserveMemory = true
         )
 
-        // START -> (compress?) -> callLLM
-        edge(nodeStart forwardTo compressBeforeCall onCondition { historyIsLongAtStart() })
+        // START -> optional compression -> LLM
+        edge(nodeStart forwardTo compressBeforeCall onCondition {
+            historyIsLongAtStart()
+        })
         edge(compressBeforeCall forwardTo callLLM)
-        edge(nodeStart forwardTo callLLM onCondition { !historyIsLongAtStart() })
 
-        // LLM -> finish | tool
-        edge(callLLM forwardTo nodeFinish onAssistantMessage { true })
-        edge(callLLM forwardTo executeTool onToolCall { true })
+        edge(nodeStart forwardTo callLLM onCondition {
+            !historyIsLongAtStart()
+        })
 
-        // TOOL -> compress -> sendToolResult
-        edge(executeTool forwardTo compressAfterTool)
+        // ВАЖНО: tool-call должен иметь приоритет над assistant message.
+        edge(callLLM forwardTo executeTool onToolCall {
+            true
+        })
+        edge(callLLM forwardTo nodeFinish onAssistantMessage {
+            true
+        })
+
+        // После инструмента compress только при реальной необходимости.
+        edge(executeTool forwardTo compressAfterTool onCondition {
+            historyIsLongAfterTool()
+        })
         edge(compressAfterTool forwardTo sendToolResult)
 
-        // sendToolResult -> finish | next tool
-        edge(sendToolResult forwardTo nodeFinish onAssistantMessage { true })
-        edge(sendToolResult forwardTo executeTool onToolCall { true })
+        edge(executeTool forwardTo sendToolResult onCondition {
+            !historyIsLongAfterTool()
+        })
+
+        // ВАЖНО: после tool result сначала проверяем следующий tool-call.
+        edge(sendToolResult forwardTo executeTool onToolCall {
+            true
+        })
+
+        // Завершаем только если LLM не запросила инструмент, а дала финальный текст.
+        edge(sendToolResult forwardTo nodeFinish onAssistantMessage {
+            true
+        })
     }
