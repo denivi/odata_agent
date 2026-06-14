@@ -3,6 +3,9 @@ package data.tools
 import ai.koog.agents.core.tools.annotations.LLMDescription
 import ai.koog.agents.core.tools.annotations.Tool
 import ai.koog.agents.core.tools.reflect.ToolSet
+import data.agent.guard.AgentExecutionContext
+import data.agent.guard.AgentRunStateRegistry
+import data.agent.guard.ToolCallDecision
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import org.example.Config
@@ -13,14 +16,28 @@ class MetaDataToolSet(
 
     @Tool
     @LLMDescription(
-        "Получает описание метаданных системы по поисковому шаблону." +
-                "Поисковый шаблон может содержать часть наименования объекта метаданных, инструмент вернет описание всех" +
-                "объектов метаданных, имена которых содержат поисковый шаблон" +
-                "Пример: searchTemplate = 'объек'  вернется несколько объектов метаданных, " +
-                "например справочник Объекты обслуживания" +
-                "Параметр инструмента: searchTemplate - часть имени, или имя целиком искомых объектов метаданных"
+        """Получает описание метаданных системы по поисковому шаблону.
+                Не подходит для поиска данных, только метаданные.
+                Поисковый шаблон может содержать часть наименования объекта метаданных, инструмент вернет описание всех
+                объектов метаданных, имена которых содержат поисковый шаблон
+                Пример: searchTemplate = 'объек'  вернется несколько объектов метаданных,
+                например справочник Объекты обслуживания
+                Параметр инструмента: searchTemplate - часть имени, или имя целиком искомых объектов метаданных"""
     )
     suspend fun getSimilarMetaData(searchTemplate: String): String {
+
+        AgentExecutionContext.sessionIdOrNull()?.let { sessionId ->
+            when (
+                val decision = AgentRunStateRegistry.beforeToolCall(
+                    sessionId = sessionId,
+                    toolName = "getSimilarMetaData",
+                    args = mapOf("searchTemplate" to searchTemplate)
+                )
+            ) {
+                is ToolCallDecision.Allow -> Unit
+                is ToolCallDecision.Deny -> return decision.payload
+            }
+        }
 
         val url = "$baseUrl/get-similar-metadata"
         return try {
@@ -35,6 +52,10 @@ class MetaDataToolSet(
             val response = executePostTool(url, requestBody, "getSimilarMetaData")
             val json = Json.parseToJsonElement(response)
             val formatedResponse = MetaDataFormatter.formatGetSimilarMetaDataForLLM(json)
+
+            AgentExecutionContext.sessionIdOrNull()?.let { sessionId ->
+                AgentRunStateRegistry.markClassMetadataLoaded(sessionId)
+            }
             //println("📤 форматированный ответ инструмента  get-similar-metadata $formatedResponse")
             formatedResponse
 
@@ -98,6 +119,22 @@ class MetaDataToolSet(
     )
     suspend fun getClassMetadata(metaDataType: String, metaDataClass: String): String {
 
+        AgentExecutionContext.sessionIdOrNull()?.let { sessionId ->
+            when (
+                val decision = AgentRunStateRegistry.beforeToolCall(
+                    sessionId = sessionId,
+                    toolName = "getClassMetadata",
+                    args = mapOf(
+                        "metaDataType" to metaDataType,
+                        "metaDataClass" to metaDataClass
+                    )
+                )
+            ) {
+                is ToolCallDecision.Allow -> Unit
+                is ToolCallDecision.Deny -> return decision.payload
+            }
+        }
+
         val url = "$baseUrl/get-class-metadata"
 
         return try {
@@ -120,6 +157,10 @@ class MetaDataToolSet(
                 } else {
                     MetaDataFormatter.formatNotRefClassMetaDataForLLM(json)
                 }
+            }
+
+            AgentExecutionContext.sessionIdOrNull()?.let { sessionId ->
+                AgentRunStateRegistry.markClassMetadataLoaded(sessionId)
             }
 
             //println("📤 форматированный ответ инструмента  get_class_metadata \n $formatClassMetadata")

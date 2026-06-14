@@ -21,6 +21,7 @@ import data.tools.GetReferenceToolSet
 import data.tools.MetaDataToolSet
 import data.tools.QueryToolSet
 import domain.strategies.basicSimpleStrategy
+import domain.strategies.guardedSimpleStrategy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -102,7 +103,7 @@ class OpenAiAgentProvider {
     private val agentService = AIAgentService(
         promptExecutor = promptExecutor,
         agentConfig = agentConfig,
-        strategy = basicSimpleStrategy(),
+        strategy = guardedSimpleStrategy(),
         toolRegistry = toolRegistry
     ) {
         install(Persistence) {
