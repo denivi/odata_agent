@@ -4,7 +4,6 @@ package data.agent
 import EXPERIMENTAL_PROMPT
 import ai.koog.agents.core.agent.AIAgentService
 import ai.koog.agents.core.agent.config.AIAgentConfig
-import ai.koog.agents.core.agent.context.RollbackStrategy
 import ai.koog.agents.core.tools.ToolRegistry
 import ai.koog.agents.snapshot.feature.Persistence
 import ai.koog.agents.snapshot.providers.InMemoryPersistenceStorageProvider
@@ -20,7 +19,7 @@ import ai.koog.prompt.params.LLMParams
 import data.tools.GetReferenceToolSet
 import data.tools.MetaDataToolSet
 import data.tools.QueryToolSet
-import domain.strategies.basicSimpleStrategy
+import domain.strategies.guardedSimpleStrategy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -102,13 +101,12 @@ class OpenAiAgentProvider {
     private val agentService = AIAgentService(
         promptExecutor = promptExecutor,
         agentConfig = agentConfig,
-        strategy = basicSimpleStrategy(),
+        strategy = guardedSimpleStrategy(),
         toolRegistry = toolRegistry
     ) {
         install(Persistence) {
             storage = persistenceStorage
             enableAutomaticPersistence = true
-            rollbackStrategy = RollbackStrategy.MessageHistoryOnly
         }
     }
 

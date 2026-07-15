@@ -8,8 +8,7 @@ object Config {
 
     // LLM (Ollama/Koog)
     val BASE_URL_LLM: String = System.getenv("BASE_URL_LLM")
-        ?: "http://127.0.0.1:11435"
-    //"http://77.95.56.147:65526"
+        ?: "http://77.95.56.147:65526"
 
     //LLM (Open api)
     val BASE_OPEN_API_URL_LLM: String = System.getenv("BASE_OPEN_API_URL_LLM")
@@ -23,5 +22,5 @@ object Config {
         ?: "qwen/qwen3.5-9b"
 
     val BASE_URL_TOOL_SET: String = System.getenv("BASE_URL_TOOL_SET")
-    ?: "http://77.95.56.147:65525/DevelopDaily/hs/agent_smart_api_v1"
+    ?: "http://77.95.56.147:65525/DevelopDaily/hs/agent-tools-api-v1"
 }

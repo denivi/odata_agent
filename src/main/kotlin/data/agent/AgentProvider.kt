@@ -9,7 +9,9 @@ import ai.koog.agents.core.tools.ToolRegistry
 import ai.koog.agents.snapshot.feature.Persistence
 import ai.koog.agents.snapshot.providers.InMemoryPersistenceStorageProvider
 import ai.koog.prompt.dsl.prompt
-import ai.koog.prompt.executor.llms.all.simpleOllamaAIExecutor
+import ai.koog.prompt.executor.llms.MultiLLMPromptExecutor
+import ai.koog.prompt.executor.ollama.client.OllamaClient
+import ai.koog.prompt.executor.ollama.client.OllamaParams
 import ai.koog.prompt.llm.LLMCapability
 import ai.koog.prompt.llm.LLMProvider
 import ai.koog.prompt.llm.LLModel
@@ -17,7 +19,6 @@ import ai.koog.prompt.params.LLMParams
 import data.tools.GetReferenceToolSet
 import data.tools.MetaDataToolSet
 import data.tools.QueryToolSet
-import domain.strategies.basicSimpleStrategy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -27,7 +28,9 @@ import PROMPT
 import ai.koog.agents.chatMemory.feature.ChatMemory
 import ai.koog.agents.chatMemory.feature.InMemoryChatHistoryProvider
 import ai.koog.agents.core.agent.AIAgent
-import domain.strategies.shortBasicSimpleStrategy
+import data.agent.guard.AgentExecutionContext
+import data.agent.guard.AgentRunStateRegistry
+import domain.strategies.guardedSimpleStrategy
 import org.example.data.dto.ChatResponse
 import java.util.concurrent.ConcurrentHashMap
 
@@ -59,10 +62,11 @@ class AgentProvider {
 
     private val prompt = prompt(
         id = "toir-assistant",
-        params = LLMParams(
+        params = OllamaParams(
             temperature = 0.1,
             numberOfChoices = 1,
-            toolChoice = LLMParams.ToolChoice.Auto
+            toolChoice = LLMParams.ToolChoice.Auto,
+            think = false
         )
     ){
         system(EXPERIMENTAL_PROMPT.trimIndent())
@@ -74,31 +78,14 @@ class AgentProvider {
         maxAgentIterations = 40
     )
 
-    private val promptExecutor = simpleOllamaAIExecutor(Config.BASE_URL_LLM)
-    private val persistenceStorage = InMemoryPersistenceStorageProvider()
+    private val promptExecutor = MultiLLMPromptExecutor(
+        OllamaClient(baseUrl = Config.BASE_URL_LLM)
+    )
     private val chatHistoryProvider = LoggingInMemoryChatHistoryProvider()
-
-    private val agentService = AIAgentService(
-        promptExecutor = promptExecutor,
-        agentConfig = agentConfig,
-        strategy = basicSimpleStrategy(),
-        toolRegistry = toolRegistry
-    ) {
-        install(ChatMemory) {
-            chatHistoryProvider = this@AgentProvider.chatHistoryProvider
-            windowSize(20)
-        }
-        install(Persistence) {
-            storage = persistenceStorage
-            enableAutomaticPersistence = true
-            rollbackStrategy = RollbackStrategy.MessageHistoryOnly
-        }
-    }
-
     private val agent = AIAgent<String, String>(
         promptExecutor = promptExecutor,
         agentConfig = agentConfig,
-        strategy = basicSimpleStrategy(),
+        strategy = guardedSimpleStrategy(),
         toolRegistry = toolRegistry
     ) {
         install(ChatMemory) {
@@ -118,10 +105,17 @@ suspend fun ask(sessionId: String, message: String): ChatResponse = withContext(
     mutex.withLock {
         println("📥 [$sessionId] USER: '$message'")
 
-        val result: String = agent.run(
-            agentInput = message,
-            sessionId = sessionId
+        AgentRunStateRegistry.startUserTurn(
+            sessionId = sessionId,
+            message = message
         )
+
+        val result: String = AgentExecutionContext.withSession(sessionId) {
+            agent.run(
+                agentInput = message,
+                sessionId = sessionId
+            )
+        }
 
         println("📤 [$sessionId] ASSISTANT: '$result'")
         ChatResponse(success = true, answer = result)

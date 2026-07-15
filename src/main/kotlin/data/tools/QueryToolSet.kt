@@ -3,6 +3,9 @@ package data.tools
 import ai.koog.agents.core.tools.annotations.LLMDescription
 import ai.koog.agents.core.tools.annotations.Tool
 import ai.koog.agents.core.tools.reflect.ToolSet
+import data.agent.guard.AgentExecutionContext
+import data.agent.guard.AgentRunStateRegistry
+import data.agent.guard.ToolCallDecision
 import data.dto.DataQueryRequest
 import data.dto.DataQueryResponse
 import data.dto.TextQuery
@@ -78,8 +81,21 @@ class QueryToolSet(
         val url = "$baseUrl/execute-query"
         val normalizedQuery = normalizeQuery(query)
 
+        AgentExecutionContext.sessionIdOrNull()?.let { sessionId ->
+            when (
+                val decision = AgentRunStateRegistry.beforeToolCall(
+                    sessionId = sessionId,
+                    toolName = "executeQuery",
+                    args = mapOf("query" to normalizedQuery)
+                )
+            ) {
+                is ToolCallDecision.Allow -> Unit
+                is ToolCallDecision.Deny -> return decision.payload
+            }
+        }
+
         validateSelectOnly(normalizedQuery)?.let { msg ->
-            return llmToolPayload(
+            val payload = llmToolPayload(
                 ok = false,
                 query = normalizedQuery,
                 error = buildJsonObject {
@@ -91,28 +107,39 @@ class QueryToolSet(
                 },
                 suggestions = listOf(
                     "Разрешены только запросы, начинающиеся с 'ВЫБРАТЬ'.",
-                    "Проверьте таблицы/поля через getClassMetadata(...) и пересоберите запрос.",
-                    "Если сомневаетесь в синтаксисе — вызовите getQueryLanguageDescription(INDEX → секция)."
+                    "Проверьте таблицы/поля через getClassMetadata(...) и пересоберите запрос."
                 )
             )
+
+            AgentExecutionContext.sessionIdOrNull()?.let { sessionId ->
+                AgentRunStateRegistry.markExecuteQueryResult(sessionId, payload)
+            }
+
+            return payload
         }
 
         validateQueryShape(normalizedQuery)?.let { msg ->
-            return llmToolPayload(
+            val payload = llmToolPayload(
                 ok = false,
                 query = normalizedQuery,
                 error = buildJsonObject {
-                    put("type", "invalid_query_shape")
+                    put("type", "invalid_query")
                     put("error_message", msg)
                     put("row_number", 0)
                     put("column_number", 0)
                     put("must_retry", true)
                 },
                 suggestions = listOf(
-                    "Проверьте каркас запроса (ВЫБРАТЬ ... ИЗ ...).",
-                    "При необходимости используйте getQueryLanguageDescription(QL_BASE)."
+                    "Разрешены только запросы, начинающиеся с 'ВЫБРАТЬ'.",
+                    "Проверьте таблицы/поля через getClassMetadata(...) и пересоберите запрос."
                 )
             )
+
+            AgentExecutionContext.sessionIdOrNull()?.let { sessionId ->
+                AgentRunStateRegistry.markExecuteQueryResult(sessionId, payload)
+            }
+
+            return payload
         }
 
         return try {
@@ -123,25 +150,38 @@ class QueryToolSet(
             val rawResponse = executePostTool(url, requestBody, "executeQuery")
 
             // 2) Единственный формат на успех/ошибку сервера 1С
-            formatQueryResponse(rawResponse = rawResponse, query = normalizedQuery)
+            val formattedResponse = formatQueryResponse(rawResponse = rawResponse, query = normalizedQuery)
+            AgentExecutionContext.sessionIdOrNull()?.let { sessionId ->
+                AgentRunStateRegistry.markExecuteQueryResult(
+                    sessionId = sessionId,
+                    toolPayload = formattedResponse
+                )
+            }
+
+            formattedResponse
 
         } catch (e: Exception) {
-            llmToolPayload(
+            val payload = llmToolPayload(
                 ok = false,
                 query = normalizedQuery,
                 error = buildJsonObject {
-                    put("type", "query_execution_failed")
-                    put("error_message", "HTTP/Runtime ошибка при вызове executeQuery: ${e.message ?: "unknown"}")
+                    put("type", "invalid_query")
+                    put("error_message", e.message)
                     put("row_number", 0)
                     put("column_number", 0)
                     put("must_retry", true)
                 },
                 suggestions = listOf(
-                    "Проверьте доступность сервиса /execute-query.",
-                    "Если сервис доступен — проверьте синтаксис и структуру через getClassMetadata.",
-                    "Если ошибка синтаксиса — getQueryLanguageDescription(INDEX → нужная секция) и пересоберите запрос."
+                    "Разрешены только запросы, начинающиеся с 'ВЫБРАТЬ'.",
+                    "Проверьте таблицы/поля через getClassMetadata(...) и пересоберите запрос."
                 )
             )
+
+            AgentExecutionContext.sessionIdOrNull()?.let { sessionId ->
+                AgentRunStateRegistry.markExecuteQueryResult(sessionId, payload)
+            }
+
+            return payload
         }
     }
 
@@ -201,18 +241,36 @@ class QueryToolSet(
 """
     )
     suspend fun getQueryLanguageDescription(sectionId: String? = null): String {
+
+        AgentExecutionContext.sessionIdOrNull()?.let { sessionId ->
+            when (
+                val decision = AgentRunStateRegistry.beforeToolCall(
+                    sessionId = sessionId,
+                    toolName = "getQueryLanguageDescription",
+                    args = mapOf("sectionId" to (sectionId ?: "INDEX"))
+                )
+            ) {
+                is ToolCallDecision.Allow -> Unit
+                is ToolCallDecision.Deny -> return decision.payload
+            }
+        }
+
         val url = "${Config.BASE_URL_TOOL_SET}/get-query-language-description"
 
         val requestBody = buildJsonObject {
             putJsonObject("request") {
                 val id = sectionId?.trim().orEmpty()
                 if (id.isNotEmpty()) put("id", id)
+                else put("id", "")
             }
         }.toString()
 
         return try {
             val raw = executePostTool(url, requestBody, "getQueryLanguageDescription")
-            QueryLanguageDescriptionFormatter.format(rawResponse = raw, requestedId = sectionId)
+            val formatedResponse = QueryLanguageDescriptionFormatter.format(rawResponse = raw, requestedId = sectionId)
+            println("📤 форматированный ответ инструмента  get-types-metadata $formatedResponse")
+            formatedResponse
+
         } catch (e: Exception) {
             QueryLanguageDescriptionFormatter.error(
                 requestedId = sectionId,
