@@ -9,7 +9,9 @@ import ai.koog.agents.core.tools.ToolRegistry
 import ai.koog.agents.snapshot.feature.Persistence
 import ai.koog.agents.snapshot.providers.InMemoryPersistenceStorageProvider
 import ai.koog.prompt.dsl.prompt
-import ai.koog.prompt.executor.llms.all.simpleOllamaAIExecutor
+import ai.koog.prompt.executor.llms.MultiLLMPromptExecutor
+import ai.koog.prompt.executor.ollama.client.OllamaClient
+import ai.koog.prompt.executor.ollama.client.OllamaParams
 import ai.koog.prompt.llm.LLMCapability
 import ai.koog.prompt.llm.LLMProvider
 import ai.koog.prompt.llm.LLModel
@@ -17,7 +19,6 @@ import ai.koog.prompt.params.LLMParams
 import data.tools.GetReferenceToolSet
 import data.tools.MetaDataToolSet
 import data.tools.QueryToolSet
-import domain.strategies.basicSimpleStrategy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -30,7 +31,6 @@ import ai.koog.agents.core.agent.AIAgent
 import data.agent.guard.AgentExecutionContext
 import data.agent.guard.AgentRunStateRegistry
 import domain.strategies.guardedSimpleStrategy
-import domain.strategies.shortBasicSimpleStrategy
 import org.example.data.dto.ChatResponse
 import java.util.concurrent.ConcurrentHashMap
 
@@ -62,10 +62,11 @@ class AgentProvider {
 
     private val prompt = prompt(
         id = "toir-assistant",
-        params = LLMParams(
+        params = OllamaParams(
             temperature = 0.1,
             numberOfChoices = 1,
-            toolChoice = LLMParams.ToolChoice.Auto
+            toolChoice = LLMParams.ToolChoice.Auto,
+            think = false
         )
     ){
         system(EXPERIMENTAL_PROMPT.trimIndent())
@@ -77,7 +78,9 @@ class AgentProvider {
         maxAgentIterations = 40
     )
 
-    private val promptExecutor = simpleOllamaAIExecutor(Config.BASE_URL_LLM)
+    private val promptExecutor = MultiLLMPromptExecutor(
+        OllamaClient(baseUrl = Config.BASE_URL_LLM)
+    )
     private val chatHistoryProvider = LoggingInMemoryChatHistoryProvider()
     private val agent = AIAgent<String, String>(
         promptExecutor = promptExecutor,

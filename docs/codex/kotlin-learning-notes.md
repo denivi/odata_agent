@@ -1,5 +1,38 @@
 # Kotlin Learning Notes
 
+## Koog 1.0: Graph DSL for tool calls
+
+In Koog 1.0, a graph strategy processes tool calls with the plural nodes and predicates:
+
+```kotlin
+val executeTools by nodeExecuteTools()
+val sendToolResults by nodeLLMSendToolResults()
+
+edge(callLlm forwardTo executeTools onToolCalls { true })
+edge(callLlm forwardTo nodeFinish onTextMessage { true })
+```
+
+The plural form is intentional: one LLM response can contain several tool calls.
+For the current agent, this preserves the rule that a tool call has priority over a final text response.
+
+---
+
+## Koog 1.0: Ollama `think`
+
+Use `OllamaParams`, not the generic `LLMParams`, when setting Ollama-specific options:
+
+```kotlin
+params = OllamaParams(
+    temperature = 0.1,
+    toolChoice = LLMParams.ToolChoice.Auto,
+    think = false
+)
+```
+
+`think` is serialized into the Ollama `/api/chat` request. This lets the agent call Ollama directly without a request-rewriting proxy.
+
+---
+
 Этот файл содержит короткие практические заметки по Kotlin, backend-разработке и agent engineering.
 
 Цель файла - фиксировать знания, которые возникают во время реальной разработки агента. Это не учебник Kotlin, а рабочий Obsidian-friendly конспект для повторения.

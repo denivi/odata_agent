@@ -14,8 +14,8 @@ fun guardedSimpleStrategy(): AIAgentGraphStrategy<String, String> =
     strategy(name = "Guarded-Simple-Strategy") {
 
         val callLLM by nodeLLMRequest()
-        val executeTool by nodeExecuteTool()
-        val sendToolResult by nodeLLMSendToolResult()
+        val executeTool by nodeExecuteTools()
+        val sendToolResult by nodeLLMSendToolResults()
 
         val validateFinalAnswer by node<String, String>("validateFinalAnswer") { assistantText ->
             val sessionId = AgentExecutionContext.sessionIdOrNull()
@@ -35,7 +35,7 @@ fun guardedSimpleStrategy(): AIAgentGraphStrategy<String, String> =
             }
 
             llm.writeSession {
-                updatePrompt {
+                appendPrompt {
                     user(AgentRunStateRegistry.buildContinueInstruction(sessionId))
                 }
             }
@@ -50,14 +50,14 @@ fun guardedSimpleStrategy(): AIAgentGraphStrategy<String, String> =
         edge(nodeStart forwardTo callLLM)
 
         // Tool-call всегда приоритетнее текста.
-        edge(callLLM forwardTo executeTool onToolCall { true })
-        edge(callLLM forwardTo validateFinalAnswer onAssistantMessage { true })
+        edge(callLLM forwardTo executeTool onToolCalls { true })
+        edge(callLLM forwardTo validateFinalAnswer onTextMessage { true })
 
         edge(executeTool forwardTo sendToolResult)
 
         // После результата инструмента снова сначала tool-call.
-        edge(sendToolResult forwardTo executeTool onToolCall { true })
-        edge(sendToolResult forwardTo validateFinalAnswer onAssistantMessage { true })
+        edge(sendToolResult forwardTo executeTool onToolCalls { true })
+        edge(sendToolResult forwardTo validateFinalAnswer onTextMessage { true })
 
         // Gate разрешил финальный ответ.
         edge(validateFinalAnswer forwardTo nodeFinish onCondition { output ->

@@ -261,12 +261,16 @@ class QueryToolSet(
             putJsonObject("request") {
                 val id = sectionId?.trim().orEmpty()
                 if (id.isNotEmpty()) put("id", id)
+                else put("id", "")
             }
         }.toString()
 
         return try {
             val raw = executePostTool(url, requestBody, "getQueryLanguageDescription")
-            QueryLanguageDescriptionFormatter.format(rawResponse = raw, requestedId = sectionId)
+            val formatedResponse = QueryLanguageDescriptionFormatter.format(rawResponse = raw, requestedId = sectionId)
+            println("📤 форматированный ответ инструмента  get-types-metadata $formatedResponse")
+            formatedResponse
+
         } catch (e: Exception) {
             QueryLanguageDescriptionFormatter.error(
                 requestedId = sectionId,

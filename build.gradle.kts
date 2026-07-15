@@ -3,7 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     application
 }
-application { mainClass.set("Main") }
+application { mainClass.set("MainKt") }
 
 group = "org.example"
 version = "1.0.0"
