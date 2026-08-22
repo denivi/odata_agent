@@ -9,6 +9,8 @@ import data.agent.guard.ToolCallDecision
 import data.dto.DataQueryRequest
 import data.dto.DataQueryResponse
 import data.dto.TextQuery
+import data.http_client.HttpClients
+import integration.toir.relevantqueries.ToirRelevantQuerySearchClient
 import io.ktor.client.*
 import io.ktor.client.engine.cio.*
 import io.ktor.client.plugins.*
@@ -21,9 +23,19 @@ import kotlin.math.min
 
 class QueryToolSet(
 
-    private val baseUrl: String = Config.BASE_URL_TOOL_SET
+    private val baseUrl: String = Config.BASE_URL_TOOL_SET,
+    private val relevantQuerySearchClient: ToirRelevantQuerySearchClient =
+        ToirRelevantQuerySearchClient(
+            httpClient = HttpClients().default,
+            baseUrl = baseUrl,
+        )
 
 ) : ToolSet {
+
+    private companion object {
+        const val DEFAULT_MAX_TEMPLATES = 3
+        const val DEFAULT_MAX_SUCCESSFUL_QUERIES = 5
+    }
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -280,6 +292,48 @@ class QueryToolSet(
         }
     }
 
+    @Tool
+    @LLMDescription(
+        """
+Ищет сохранённые успешные запросы и шаблоны, релевантные вопросу пользователя.
+
+ПАРАМЕТРЫ:
+- question: исходный вопрос пользователя о данных системы.
+
+ВАЖНО:
+- Найденные шаблоны и успешные запросы — только ориентиры.
+- Они не являются актуальным ответом.
+- После получения результата нужно сформировать и выполнить новый executeQuery.
+- Если ничего не найдено, продолжи обычный путь через метаданные.
+"""
+    )
+    suspend fun getSimilarSuccessfulQueries(question: String): String {
+        AgentExecutionContext.sessionIdOrNull()?.let { sessionId ->
+            when (
+                val decision = AgentRunStateRegistry.beforeToolCall(
+                    sessionId = sessionId,
+                    toolName = "getSimilarSuccessfulQueries",
+                    args = mapOf("question" to question),
+                )
+            ) {
+                is ToolCallDecision.Allow -> Unit
+                is ToolCallDecision.Deny -> return decision.payload
+            }
+        }
+
+        val result = relevantQuerySearchClient.search(
+            question = question,
+            maxTemplates = DEFAULT_MAX_TEMPLATES,
+            maxSuccessfulQueries = DEFAULT_MAX_SUCCESSFUL_QUERIES,
+        )
+
+        val formattedResult = RelevantQuerySearchToolResponseFormatter.format(result)
+        println(
+            "🔧 [TOOL] getSimilarSuccessfulQueries → LLM payload:\n$formattedResult"
+        )
+        return formattedResult
+    }
+
     /**
      * Готовит LLM-friendly payload:
      * - Если is_error=true: возвращает структурированную ошибку с координатами.
@@ -488,12 +542,17 @@ class QueryToolSet(
                     JsonPrimitive(if (s.length > maxValueLen) s.take(maxValueLen) + "…" else s)
                 } else el
             }
+
             else -> el
         }
     }
 
     private fun JsonElement.asJsonObjectOrNull(): JsonObject? =
-        try { this.jsonObject } catch (_: Exception) { null }
+        try {
+            this.jsonObject
+        } catch (_: Exception) {
+            null
+        }
 
     /** POST вызов тул-сервиса. */
     private suspend fun executePostTool(url: String, requestBody: String, toolName: String): String {

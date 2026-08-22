@@ -30,6 +30,7 @@ dependencies {
     implementation(libs.ktor.client.cio)
     implementation(libs.ktor.client.content)
     implementation(libs.ktor.client.logging)
+    testImplementation(libs.ktor.client.mock)
 
     // Server
     implementation(libs.ktor.server.core)
@@ -46,6 +47,8 @@ dependencies {
 
     // Simple Logging Facade for Java
     implementation(libs.slf4j.simple)
+
+    testImplementation(kotlin("test"))
 
 }
 tasks.test {
